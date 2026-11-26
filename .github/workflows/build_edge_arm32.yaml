@@ -1,0 +1,129 @@
+name: Build Edge ARM32
+on:
+  workflow_dispatch:
+
+jobs:
+  native:
+    name: Bangun liblitertlm_jni.so (armeabi-v7a)
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - name: Kosongkan disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Ambil source LiteRT-LM v0.18.1
+        uses: actions/checkout@v4
+        with:
+          repository: google-ai-edge/LiteRT-LM
+          ref: v0.18.1
+          path: lm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Pasang Bazelisk
+        run: npm install -g @bazel/bazelisk
+
+      - name: Pasang komponen Android SDK
+        run: |
+          set +o pipefail
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0" > /dev/null || true
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
+
+      - name: Pasang NDK r28b
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28b
+          add-to-path: false
+
+      - name: Ekspor ANDROID_NDK_HOME
+        run: echo "ANDROID_NDK_HOME=${{ steps.ndk.outputs.ndk-path }}" >> $GITHUB_ENV
+
+      - name: Tambah toolchain Rust ARMv7
+        working-directory: lm
+        run: |
+          sed -i 's/"aarch64-linux-android",/"aarch64-linux-android",\n        "armv7-linux-androideabi",/' WORKSPACE
+          grep -n "linux-android" WORKSPACE
+
+      - name: Build
+        working-directory: lm
+        run: |
+          set -o pipefail
+          bazelisk build -c opt --config=android_arm \
+            --disk_cache=$HOME/.cache/bazel \
+            --repository_cache=$HOME/.cache/bazel/repo \
+            --verbose_failures --keep_going \
+            //kotlin/java/com/google/ai/edge/litertlm/jni:litertlm_jni \
+            2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+
+      - name: Kumpulkan hasil
+        working-directory: lm
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          SRC=$(find -L bazel-bin/kotlin/java/com/google/ai/edge/litertlm/jni -maxdepth 1 -type f \( -name 'litertlm_jni' -o -name 'liblitertlm_jni.so' \) | head -1)
+          echo "Hasil: $SRC"
+          cp "$SRC" "$GITHUB_WORKSPACE/out/liblitertlm_jni.so"
+          $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-unneeded "$GITHUB_WORKSPACE/out/liblitertlm_jni.so"
+          file "$GITHUB_WORKSPACE/out/liblitertlm_jni.so"
+          ls -l "$GITHUB_WORKSPACE/out"
+
+      - name: Unggah library
+        uses: actions/upload-artifact@v4
+        with:
+          name: litertlm-armv7
+          path: out/liblitertlm_jni.so
+
+      - name: Unggah log build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+
+  apk:
+    name: Bangun APK dengan library 32-bit
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Android SDK Platform 37
+        run: echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-37.0"
+
+      - name: Ambil library 32-bit
+        uses: actions/download-artifact@v4
+        with:
+          name: litertlm-armv7
+          path: Android/src/app/src/main/jniLibs/armeabi-v7a
+
+      - name: Arahkan daftar model ke fork ini
+        run: |
+          sed -i 's#google-ai-edge/gallery/refs/heads/main/model_allowlists#hafefrock/edge/refs/heads/main/model_allowlists#' \
+            Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/modelmanager/ModelManagerViewModel.kt
+          grep -n "ALLOWLIST_BASE_URL" -A1 Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/modelmanager/ModelManagerViewModel.kt | head -4
+
+      - name: Build
+        working-directory: Android/src
+        run: ./gradlew assembleRelease
+
+      - name: Daftar ABI di APK
+        working-directory: Android/src
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          unzip -l "$APK" | grep -E 'lib/armeabi-v7a/'
+
+      - name: Unggah APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-apk-arm32
+          path: Android/src/app/build/outputs/apk/release/app-release.apk
