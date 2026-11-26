@@ -26,7 +26,13 @@ jobs:
           java-version: '17'
 
       - name: Pasang Bazelisk
-        run: npm install -g @bazel/bazelisk
+        run: |
+          if command -v bazelisk >/dev/null 2>&1; then
+            echo "Bazelisk sudah ada"
+          else
+            sudo npm install -g @bazel/bazelisk
+          fi
+          bazelisk --version
 
       - name: Pasang komponen Android SDK
         run: |
