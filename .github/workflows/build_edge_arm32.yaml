@@ -56,6 +56,14 @@ jobs:
           sed -i 's/"aarch64-linux-android",/"aarch64-linux-android",\n        "armv7-linux-androideabi",/' WORKSPACE
           grep -n "linux-android" WORKSPACE
 
+      - name: Pulihkan cache Bazel
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/bazel
+          key: bazel-lm-v0.19.1-none
+          restore-keys: |
+            bazel-lm-v0.19.1-
+
       - name: Build
         working-directory: lm
         run: |
@@ -64,8 +72,17 @@ jobs:
             --disk_cache=$HOME/.cache/bazel \
             --repository_cache=$HOME/.cache/bazel/repo \
             --verbose_failures --keep_going \
+            --linkopt=-Wl,--unresolved-symbols=ignore-all \
+            --linkopt=-Wl,-z,lazy \
             //kotlin/java/com/google/ai/edge/litertlm/jni:litertlm_jni \
             2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+
+      - name: Simpan cache Bazel
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/bazel
+          key: bazel-lm-v0.19.1-${{ github.run_id }}
 
       - name: Kumpulkan hasil
         working-directory: lm
@@ -76,6 +93,10 @@ jobs:
           cp "$SRC" "$GITHUB_WORKSPACE/out/liblitertlm_jni.so"
           $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-unneeded "$GITHUB_WORKSPACE/out/liblitertlm_jni.so"
           file "$GITHUB_WORKSPACE/out/liblitertlm_jni.so"
+          NM=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm
+          echo "Simbol wgpu yang belum terpenuhi: $($NM -D --undefined-only "$GITHUB_WORKSPACE/out/liblitertlm_jni.so" | grep -c wgpu)"
+          echo "Simbol belum terpenuhi selain libc/wgpu:"
+          $NM -D --undefined-only "$GITHUB_WORKSPACE/out/liblitertlm_jni.so" | grep -vE "wgpu| (__|android_|AAsset|ANativeWindow|dl|lib)" | head -40 || true
           ls -l "$GITHUB_WORKSPACE/out"
 
       - name: Unggah library
