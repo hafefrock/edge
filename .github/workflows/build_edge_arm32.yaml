@@ -64,7 +64,33 @@ jobs:
           restore-keys: |
             bazel-lm-v0.19.1-
 
-      - name: Build
+      - name: Build fase 1 (kumpulkan daftar simbol wgpu yang tidak ada)
+        working-directory: lm
+        run: |
+          bazelisk build -c opt --config=android_arm \
+            --disk_cache=$HOME/.cache/bazel \
+            --repository_cache=$HOME/.cache/bazel/repo \
+            --verbose_failures --keep_going \
+            --linkopt=-Wl,--error-limit=0 \
+            //kotlin/java/com/google/ai/edge/litertlm/jni:litertlm_jni \
+            2>&1 | tee "$GITHUB_WORKSPACE/build_phase1.log" || true
+
+      - name: Buat stub wgpu untuk ARM 32-bit
+        run: |
+          grep -oE 'undefined symbol: wgpu[A-Za-z0-9_]+' build_phase1.log | sed 's/undefined symbol: //' | sort -u > wgpu_syms.txt || true
+          echo "Jumlah simbol wgpu: $(wc -l < wgpu_syms.txt)"
+          head -5 wgpu_syms.txt
+          {
+            echo '#include <stddef.h>'
+            while read -r sym; do
+              echo "__attribute__((visibility(\"default\"))) unsigned long long $sym(void) { return 0; }"
+            done < wgpu_syms.txt
+          } > wgpu_stub.c
+          CLANG=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang
+          $CLANG -c -fPIC -O1 wgpu_stub.c -o wgpu_stub.o
+          ls -l wgpu_stub.o
+
+      - name: Build fase 2 (link dengan stub)
         working-directory: lm
         run: |
           set -o pipefail
@@ -72,8 +98,8 @@ jobs:
             --disk_cache=$HOME/.cache/bazel \
             --repository_cache=$HOME/.cache/bazel/repo \
             --verbose_failures --keep_going \
-            --linkopt=-Wl,--unresolved-symbols=ignore-all \
-            --linkopt=-Wl,-z,lazy \
+            --linkopt=-Wl,--error-limit=0 \
+            --linkopt=$GITHUB_WORKSPACE/wgpu_stub.o \
             //kotlin/java/com/google/ai/edge/litertlm/jni:litertlm_jni \
             2>&1 | tee "$GITHUB_WORKSPACE/build.log"
 
@@ -110,7 +136,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: build.log
+          path: |
+            build.log
+            build_phase1.log
 
   apk:
     name: Bangun APK dengan library 32-bit
