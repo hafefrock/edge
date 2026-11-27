@@ -63,6 +63,14 @@ jobs:
           sed -i 's/"aarch64-linux-android",/"aarch64-linux-android",\n        "armv7-linux-androideabi",/' WORKSPACE
           grep -n "linux-android" WORKSPACE
 
+      - name: Aktifkan file-backed loading untuk CPU (model besar di 32-bit)
+        working-directory: lm
+        run: |
+          F=runtime/core/engine_advanced_impl.cc
+          sed -i 's/^      is_npu && advanced_settings &&$/      !is_npu || (is_npu \&\& advanced_settings \&\&/' $F
+          sed -i 's/^      !advanced_settings->configure_magic_numbers;$/      !advanced_settings->configure_magic_numbers);/' $F
+          grep -n -B1 -A2 'enable_file_backed_model_loading =' $F
+
       - name: Pulihkan cache Bazel
         uses: actions/cache/restore@v4
         with:
