@@ -173,6 +173,21 @@ jobs:
           sed -i 's/^litertlm = "0.18.1"/litertlm = "0.19.1"/' Android/src/gradle/libs.versions.toml
           grep -n '^litertlm = ' Android/src/gradle/libs.versions.toml
 
+      - name: Aktifkan pilihan bahasa (Indonesia dan Inggris)
+        run: |
+          MAIN=Android/src/app/src/main
+          test -f $MAIN/res/values-in/strings.xml || echo "PERINGATAN: values-in/strings.xml belum ada di repo"
+          mkdir -p $MAIN/res/xml
+          cat > $MAIN/res/xml/locales_config.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+              <locale android:name="en"/>
+              <locale android:name="id"/>
+          </locale-config>
+          XML
+          sed -i 's#android:supportsRtl="true"#android:supportsRtl="true"\n        android:localeConfig="@xml/locales_config"#' $MAIN/AndroidManifest.xml
+          grep -n 'localeConfig' $MAIN/AndroidManifest.xml
+
       - name: Arahkan daftar model ke fork ini
         run: |
           sed -i 's#google-ai-edge/gallery/refs/heads/main/model_allowlists#hafefrock/edge/refs/heads/main/model_allowlists#' \
