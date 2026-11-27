@@ -52,7 +52,7 @@
       "modelFile": "gemma-4-E4B-it.litertlm",
       "description": "A variant of Gemma 4 E4B ready for deployment on Android using [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM/blob/main/docs/api/kotlin/getting_started.md). It supports multi-modality input, with up to 32K context length.",
       "sizeInBytes": 3659530240,
-      "minDeviceMemoryInGb": 12,
+      "minDeviceMemoryInGb": 2,
       "commitHash": "28299f30ee4d43294517a4ac93abd6163412f07f",
       "llmSupportImage": true,
       "llmSupportAudio": true,
@@ -61,10 +61,10 @@
         "topK": 64,
         "topP": 0.95,
         "temperature": 1.0,
-        "maxContextLength": 32000,
-        "maxTokens": 4000,
-        "accelerators": "gpu,cpu",
-        "visionAccelerator": "gpu"
+        "maxContextLength": 2048,
+        "maxTokens": 1024,
+        "accelerators": "cpu",
+        "visionAccelerator": "cpu"
       },
       "taskTypes": [
         "llm_chat",
