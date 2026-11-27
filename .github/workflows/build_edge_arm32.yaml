@@ -75,10 +75,10 @@ jobs:
             //kotlin/java/com/google/ai/edge/litertlm/jni:litertlm_jni \
             2>&1 | tee "$GITHUB_WORKSPACE/build_phase1.log" || true
 
-      - name: Buat stub wgpu untuk ARM 32-bit
+      - name: Buat stub (wgpu dan constraint provider) untuk ARM 32-bit
         run: |
-          grep -oE 'undefined symbol: wgpu[A-Za-z0-9_]+' build_phase1.log | sed 's/undefined symbol: //' | sort -u > wgpu_syms.txt || true
-          echo "Jumlah simbol wgpu: $(wc -l < wgpu_syms.txt)"
+          grep -oE 'undefined symbol: (wgpu|LiteRtLm)[A-Za-z0-9_]+' build_phase1.log | sed 's/undefined symbol: //' | sort -u > wgpu_syms.txt || true
+          echo "Jumlah simbol yang di-stub (wgpu + LiteRtLm): $(wc -l < wgpu_syms.txt)"
           head -5 wgpu_syms.txt
           {
             echo '#include <stddef.h>'
