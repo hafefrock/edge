@@ -1,19 +1,50 @@
 name: Build Edge ARM32
 on:
   workflow_dispatch:
+    inputs:
+      rebuild_native:
+        description: 'Bangun ulang library native (centang hanya jika versi atau patch native berubah)'
+        type: boolean
+        default: false
   push:
     paths:
       - '.github/workflows/build_edge_arm32.yaml'
+      - 'Android/src/app/src/main/res/values-in/**'
+      - 'model_allowlists/**'
 
 concurrency:
   group: edge-arm32
   cancel-in-progress: true
 
 jobs:
+  check:
+    name: Cek library native di Release
+    runs-on: ubuntu-latest
+    outputs:
+      need_native: ${{ steps.decide.outputs.need_native }}
+    steps:
+      - id: decide
+        run: |
+          API=https://api.github.com/repos/${{ github.repository }}/releases/tags/native-armv7
+          if [ "${{ inputs.rebuild_native }}" = "true" ]; then
+            echo "need_native=true" >> $GITHUB_OUTPUT
+            echo "Dipaksa bangun ulang library native"
+          elif curl -fs "$API" | grep -q 'liblitertlm_jni.so'; then
+            echo "need_native=false" >> $GITHUB_OUTPUT
+            echo "Library sudah ada di Release, build native dilewati"
+          else
+            echo "need_native=true" >> $GITHUB_OUTPUT
+            echo "Library belum ada di Release, bangun native dulu"
+          fi
+
   native:
     name: Bangun liblitertlm_jni.so (armeabi-v7a)
+    needs: check
+    if: needs.check.outputs.need_native == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 340
+    permissions:
+      contents: write
     steps:
       - name: Kosongkan disk
         run: |
@@ -146,6 +177,18 @@ jobs:
           name: litertlm-armv7
           path: out/liblitertlm_jni.so
 
+      - name: Simpan library ke Release (native-armv7)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO=${{ github.repository }}
+          gh release view native-armv7 --repo "$REPO" >/dev/null 2>&1 || \
+            gh release create native-armv7 --repo "$REPO" \
+              --title "Library native ARMv7" \
+              --notes "liblitertlm_jni.so untuk armeabi-v7a (LiteRT-LM v0.19.1, file-backed loading CPU)"
+          gh release upload native-armv7 out/liblitertlm_jni.so --repo "$REPO" --clobber
+          gh release view native-armv7 --repo "$REPO"
+
       - name: Unggah log build
         if: always()
         uses: actions/upload-artifact@v4
@@ -157,7 +200,8 @@ jobs:
 
   apk:
     name: Bangun APK dengan library 32-bit
-    needs: native
+    needs: [check, native]
+    if: ${{ always() && needs.check.result == 'success' && (needs.native.result == 'success' || needs.native.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -170,11 +214,13 @@ jobs:
       - name: Install Android SDK Platform 37
         run: echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-37.0"
 
-      - name: Ambil library 32-bit
-        uses: actions/download-artifact@v4
-        with:
-          name: litertlm-armv7
-          path: Android/src/app/src/main/jniLibs/armeabi-v7a
+      - name: Unduh library 32-bit dari Release
+        run: |
+          DIR=Android/src/app/src/main/jniLibs/armeabi-v7a
+          mkdir -p $DIR
+          URL=https://github.com/${{ github.repository }}/releases/download/native-armv7/liblitertlm_jni.so
+          curl -fL --retry 3 -o $DIR/liblitertlm_jni.so "$URL"
+          ls -l $DIR/liblitertlm_jni.so
 
       - name: Samakan versi litertlm app dengan library native (0.19.1)
         run: |
