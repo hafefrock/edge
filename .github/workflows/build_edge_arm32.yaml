@@ -1,6 +1,13 @@
 name: Build Edge ARM32
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build_edge_arm32.yaml'
+
+concurrency:
+  group: edge-arm32
+  cancel-in-progress: true
 
 jobs:
   native:
